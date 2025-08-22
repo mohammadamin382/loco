@@ -3,12 +3,12 @@ use clap::Parser;
 use colored::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, BTreeMap, VecDeque};
+use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Write, BufRead, BufReader};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::{AtomicUsize, AtomicU64, Ordering}};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime};
 use walkdir::WalkDir;
 use regex::Regex;
 
@@ -98,14 +98,14 @@ struct Args {
     report: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct LanguageStats {
-    total_lines: AtomicUsize,
-    code_lines: AtomicUsize,
-    comment_lines: AtomicUsize,
-    blank_lines: AtomicUsize,
-    files: AtomicUsize,
-    total_size: AtomicU64,
+    total_lines: usize,
+    code_lines: usize,
+    comment_lines: usize,
+    blank_lines: usize,
+    files: usize,
+    total_size: u64,
     avg_line_length: f64,
     max_line_length: usize,
     complexity_score: f64,
@@ -122,12 +122,12 @@ struct LanguageStats {
 impl Default for LanguageStats {
     fn default() -> Self {
         Self {
-            total_lines: AtomicUsize::new(0),
-            code_lines: AtomicUsize::new(0),
-            comment_lines: AtomicUsize::new(0),
-            blank_lines: AtomicUsize::new(0),
-            files: AtomicUsize::new(0),
-            total_size: AtomicU64::new(0),
+            total_lines: 0,
+            code_lines: 0,
+            comment_lines: 0,
+            blank_lines: 0,
+            files: 0,
+            total_size: 0,
             avg_line_length: 0.0,
             max_line_length: 0,
             complexity_score: 0.0,
@@ -139,6 +139,30 @@ impl Default for LanguageStats {
             file_sizes: Vec::new(),
             creation_dates: Vec::new(),
             modification_dates: Vec::new(),
+        }
+    }
+}
+
+impl Clone for LanguageStats {
+    fn clone(&self) -> Self {
+        Self {
+            total_lines: self.total_lines,
+            code_lines: self.code_lines,
+            comment_lines: self.comment_lines,
+            blank_lines: self.blank_lines,
+            files: self.files,
+            total_size: self.total_size,
+            avg_line_length: self.avg_line_length,
+            max_line_length: self.max_line_length,
+            complexity_score: self.complexity_score,
+            functions: self.functions,
+            classes: self.classes,
+            imports: self.imports,
+            todos: self.todos,
+            fixmes: self.fixmes,
+            file_sizes: self.file_sizes.clone(),
+            creation_dates: self.creation_dates.clone(),
+            modification_dates: self.modification_dates.clone(),
         }
     }
 }
@@ -263,47 +287,47 @@ impl LanguageConfig {
 
 fn get_language_name(extension: &str) -> String {
     match extension.to_lowercase().as_str() {
-        "rs" => "Rust 🦀",
-        "py" | "pyw" | "pyi" => "Python 🐍",
-        "js" | "mjs" | "cjs" => "JavaScript 🟨",
-        "ts" => "TypeScript 🔷",
-        "jsx" => "React JSX ⚛️",
-        "tsx" => "React TypeScript ⚛️",
-        "java" => "Java ☕",
-        "kt" => "Kotlin 🎯",
-        "scala" => "Scala 🔥",
-        "c" => "C 🔧",
-        "cpp" | "cc" | "cxx" | "c++" => "C++ ⚡",
-        "cs" => "C# 💎",
-        "h" => "C Header 📋",
-        "hpp" | "hxx" => "C++ Header 📋",
-        "go" => "Go 🐹",
-        "rb" | "rake" => "Ruby 💎",
-        "php" => "PHP 🐘",
-        "html" | "htm" => "HTML 🌐",
-        "css" => "CSS 🎨",
-        "scss" => "SCSS 🎨",
-        "sass" => "Sass 🎨",
-        "less" => "Less 🎨",
-        "xml" | "svg" => "XML 📄",
-        "json" => "JSON 📊",
-        "yaml" | "yml" => "YAML 📝",
-        "toml" => "TOML ⚙️",
-        "md" | "markdown" => "Markdown 📖",
-        "sh" | "bash" => "Shell 🐚",
-        "sql" => "SQL 🗃️",
-        "lua" => "Lua 🌙",
-        "vim" => "Vim Script 📝",
-        "r" => "R 📊",
-        "swift" => "Swift 🏃‍♂️",
-        "dart" => "Dart 🎯",
-        "zig" => "Zig ⚡",
-        "haskell" | "hs" => "Haskell λ",
-        "elm" => "Elm 🌳",
-        "clojure" | "clj" => "Clojure 🔮",
-        "dockerfile" => "Dockerfile 🐳",
-        "makefile" => "Makefile 🔨",
-        "gitignore" => "Gitignore 📋",
+        "rs" => "Rust 🦀".to_string(),
+        "py" | "pyw" | "pyi" => "Python 🐍".to_string(),
+        "js" | "mjs" | "cjs" => "JavaScript 🟨".to_string(),
+        "ts" => "TypeScript 🔷".to_string(),
+        "jsx" => "React JSX ⚛️".to_string(),
+        "tsx" => "React TypeScript ⚛️".to_string(),
+        "java" => "Java ☕".to_string(),
+        "kt" => "Kotlin 🎯".to_string(),
+        "scala" => "Scala 🔥".to_string(),
+        "c" => "C 🔧".to_string(),
+        "cpp" | "cc" | "cxx" | "c++" => "C++ ⚡".to_string(),
+        "cs" => "C# 💎".to_string(),
+        "h" => "C Header 📋".to_string(),
+        "hpp" | "hxx" => "C++ Header 📋".to_string(),
+        "go" => "Go 🐹".to_string(),
+        "rb" | "rake" => "Ruby 💎".to_string(),
+        "php" => "PHP 🐘".to_string(),
+        "html" | "htm" => "HTML 🌐".to_string(),
+        "css" => "CSS 🎨".to_string(),
+        "scss" => "SCSS 🎨".to_string(),
+        "sass" => "Sass 🎨".to_string(),
+        "less" => "Less 🎨".to_string(),
+        "xml" | "svg" => "XML 📄".to_string(),
+        "json" => "JSON 📊".to_string(),
+        "yaml" | "yml" => "YAML 📝".to_string(),
+        "toml" => "TOML ⚙️".to_string(),
+        "md" | "markdown" => "Markdown 📖".to_string(),
+        "sh" | "bash" => "Shell 🐚".to_string(),
+        "sql" => "SQL 🗃️".to_string(),
+        "lua" => "Lua 🌙".to_string(),
+        "vim" => "Vim Script 📝".to_string(),
+        "r" => "R 📊".to_string(),
+        "swift" => "Swift 🏃‍♂️".to_string(),
+        "dart" => "Dart 🎯".to_string(),
+        "zig" => "Zig ⚡".to_string(),
+        "haskell" | "hs" => "Haskell λ".to_string(),
+        "elm" => "Elm 🌳".to_string(),
+        "clojure" | "clj" => "Clojure 🔮".to_string(),
+        "dockerfile" => "Dockerfile 🐳".to_string(),
+        "makefile" => "Makefile 🔨".to_string(),
+        "gitignore" => "Gitignore 📋".to_string(),
         _ => format!("Unknown ({})", extension),
     }
 }
@@ -314,12 +338,12 @@ fn detect_encoding(file_path: &Path) -> String {
             return "UTF-8 BOM".to_string();
         }
         
-        let mut ascii_count = 0;
+        let mut _ascii_count = 0;
         let mut utf8_count = 0;
         
         for &byte in &bytes[..std::cmp::min(1024, bytes.len())] {
             if byte.is_ascii() {
-                ascii_count += 1;
+                _ascii_count += 1;
             } else if byte & 0x80 != 0 {
                 utf8_count += 1;
             }
@@ -343,13 +367,13 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
     let total_lines = lines.len();
     
     let mut code_lines = 0;
-    let mut comment_lines = 0;
-    let mut blank_lines = 0;
-    let mut functions = 0;
-    let mut classes = 0;
-    let mut imports = 0;
-    let mut todos = 0;
-    let mut fixmes = 0;
+    let mut _comment_lines = 0;
+    let mut _blank_lines = 0;
+    let mut _functions = 0;
+    let mut _classes = 0;
+    let mut _imports = 0;
+    let mut _todos = 0;
+    let mut _fixmes = 0;
     let mut complexity_score = 0.0;
     let mut max_line_length = 0;
     let mut total_chars = 0;
@@ -364,13 +388,13 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
         total_chars += line_length;
         
         if trimmed.is_empty() {
-            blank_lines += 1;
+            _blank_lines += 1;
             continue;
         }
         
         // Check for TODOs and FIXMEs
-        if trimmed.to_uppercase().contains("TODO") { todos += 1; }
-        if trimmed.to_uppercase().contains("FIXME") { fixmes += 1; }
+        if trimmed.to_uppercase().contains("TODO") { _todos += 1; }
+        if trimmed.to_uppercase().contains("FIXME") { _fixmes += 1; }
         
         let mut is_comment = false;
         let mut line_content = trimmed;
@@ -382,11 +406,11 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
                 in_multi_comment = false;
                 line_content = &line_content[end_pos + multi_comment_end.len()..].trim();
                 if line_content.is_empty() {
-                    comment_lines += 1;
+                    _comment_lines += 1;
                     continue;
                 }
             } else {
-                comment_lines += 1;
+                _comment_lines += 1;
                 continue;
             }
         }
@@ -430,13 +454,13 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
                 
                 // Analyze code patterns
                 for keyword in &config.function_keywords {
-                    if line_content.contains(keyword) { functions += 1; break; }
+                    if line_content.contains(keyword) { _functions += 1; break; }
                 }
                 for keyword in &config.class_keywords {
-                    if line_content.contains(keyword) { classes += 1; break; }
+                    if line_content.contains(keyword) { _classes += 1; break; }
                 }
                 for keyword in &config.import_keywords {
-                    if line_content.contains(keyword) { imports += 1; break; }
+                    if line_content.contains(keyword) { _imports += 1; break; }
                 }
                 for keyword in &config.complexity_keywords {
                     if line_content.contains(keyword) { complexity_score += 1.0; }
@@ -445,11 +469,11 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
         }
         
         if is_comment {
-            comment_lines += 1;
+            _comment_lines += 1;
         }
     }
     
-    let avg_line_length = if total_lines > 0 {
+    let _avg_line_length = if total_lines > 0 {
         total_chars as f64 / total_lines as f64
     } else { 0.0 };
     
@@ -577,10 +601,10 @@ fn print_advanced_results(stats: &ProjectStats, args: &Args) {
     let mut sorted_languages: Vec<_> = stats.languages.iter().collect();
     
     match args.sort_by.as_str() {
-        "files" => sorted_languages.sort_by(|a, b| b.1.files.load(Ordering::Relaxed).cmp(&a.1.files.load(Ordering::Relaxed))),
-        "size" => sorted_languages.sort_by(|a, b| b.1.total_size.load(Ordering::Relaxed).cmp(&a.1.total_size.load(Ordering::Relaxed))),
+        "files" => sorted_languages.sort_by(|a, b| b.1.files.cmp(&a.1.files)),
+        "size" => sorted_languages.sort_by(|a, b| b.1.total_size.cmp(&a.1.total_size)),
         "name" => sorted_languages.sort_by(|a, b| a.0.cmp(b.0)),
-        _ => sorted_languages.sort_by(|a, b| b.1.total_lines.load(Ordering::Relaxed).cmp(&a.1.total_lines.load(Ordering::Relaxed))),
+        _ => sorted_languages.sort_by(|a, b| b.1.total_lines.cmp(&a.1.total_lines)),
     }
     
     if let Some(top) = args.top {
@@ -591,21 +615,21 @@ fn print_advanced_results(stats: &ProjectStats, args: &Args) {
     println!("{}", "-".repeat(80).bright_black());
     
     for (language, lang_stats) in &sorted_languages {
-        let total_lines = lang_stats.total_lines.load(Ordering::Relaxed);
+        let total_lines = lang_stats.total_lines;
         if total_lines < args.min_lines { continue; }
         
-        let code_lines = lang_stats.code_lines.load(Ordering::Relaxed);
-        let comment_lines = lang_stats.comment_lines.load(Ordering::Relaxed);
-        let blank_lines = lang_stats.blank_lines.load(Ordering::Relaxed);
-        let files = lang_stats.files.load(Ordering::Relaxed);
-        let size = lang_stats.total_size.load(Ordering::Relaxed);
+        let code_lines = lang_stats.code_lines;
+        let comment_lines = lang_stats.comment_lines;
+        let blank_lines = lang_stats.blank_lines;
+        let files = lang_stats.files;
+        let size = lang_stats.total_size;
         
         println!("\n{} {}", "▶️", language.bright_white().bold());
         println!("  {} {} files ({:.1}%)", "📄", files.to_string().bright_cyan(),
             (files as f64 / stats.total_files as f64 * 100.0).to_string().bright_white());
         println!("  {} {} lines ({:.1}%)", "📊", total_lines.to_string().bright_green(),
             (total_lines as f64 / stats.total_lines as f64 * 100.0).to_string().bright_white());
-        println!("  {} {} code | {} comments | {} blank", 
+        println!("  {} {} code | {} {} comments | {} {} blank", 
             "💻", code_lines.to_string().bright_green(),
             "💬", comment_lines.to_string().bright_blue(),
             "⬜", blank_lines.to_string().bright_black());
@@ -618,13 +642,13 @@ fn print_advanced_results(stats: &ProjectStats, args: &Args) {
         
         if args.complexity {
             println!("  {} {:.2} complexity score", "🧮", lang_stats.complexity_score);
-            println!("  {} {} functions | {} classes | {} imports", 
+            println!("  {} {} functions | {} {} classes | {} {} imports", 
                 "🔧", lang_stats.functions.to_string().bright_yellow(),
                 "🏗️", lang_stats.classes.to_string().bright_magenta(),
                 "📦", lang_stats.imports.to_string().bright_cyan());
             
             if lang_stats.todos > 0 || lang_stats.fixmes > 0 {
-                println!("  {} {} TODOs | {} FIXMEs", 
+                println!("  {} {} TODOs | {} {} FIXMEs", 
                     "📝", lang_stats.todos.to_string().bright_yellow(),
                     "🔧", lang_stats.fixmes.to_string().bright_red());
             }
@@ -647,7 +671,7 @@ fn print_advanced_results(stats: &ProjectStats, args: &Args) {
         
         for dir_stats in &stats.directories[..std::cmp::min(10, stats.directories.len())] {
             println!("\n{} {}", "📁", dir_stats.path.display().to_string().bright_white());
-            println!("  {} {} files | {} lines | {:.1} MB", 
+            println!("  {} {} files | {} {} lines | {} {:.1} MB", 
                 "📊", dir_stats.total_files.to_string().bright_cyan(),
                 "📏", dir_stats.total_lines.to_string().bright_green(),
                 "💾", dir_stats.total_size as f64 / 1_048_576.0);
@@ -729,9 +753,9 @@ fn main() {
                         let entry = languages_guard.entry(file_info.language.clone())
                             .or_insert_with(LanguageStats::default);
                         
-                        entry.total_lines.fetch_add(file_info.lines, Ordering::Relaxed);
-                        entry.files.fetch_add(1, Ordering::Relaxed);
-                        entry.total_size.fetch_add(file_info.size, Ordering::Relaxed);
+                        entry.total_lines += file_info.lines;
+                        entry.files += 1;
+                        entry.total_size += file_info.size;
                     }
                 }
             }
@@ -787,4 +811,4 @@ fn main() {
     }
     
     println!("\n{} Analysis completed successfully! 🎉", "✅".bright_green().bold());
-        }
+                        }
