@@ -1,6 +1,7 @@
 
 use clap::Parser;
 use colored::*;
+use num_cpus;
 use dashmap::DashMap;
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::Mmap;
@@ -286,7 +287,17 @@ impl LanguageConfig {
                 test_keywords: vec!["@Test".into(), "junit".into(), "testng".into()],
                 doc_keywords: vec!["/**".into(), "//".into(), "@param".into(), "@return".into()],
             }),
-            "c" | "cpp" | "cc" | "cxx" | "h" | "hpp" | "c++" => Some(Self {
+            "c" | "h" => Some(Self {
+                single_line_comments: vec!["//".into()],
+                multi_line_comments: vec![("/*".into(), "*/".into())],
+                function_keywords: vec!["int ".into(), "void ".into(), "char ".into(), "float ".into(), "double ".into(), "static ".into()],
+                class_keywords: vec!["struct ".into(), "union ".into(), "enum ".into(), "typedef ".into()],
+                import_keywords: vec!["#include".into(), "#import".into(), "#define".into()],
+                complexity_keywords: vec!["if ".into(), "while ".into(), "for ".into(), "switch ".into(), "else if ".into()],
+                test_keywords: vec!["TEST(".into(), "ASSERT_".into(), "EXPECT_".into()],
+                doc_keywords: vec!["/**".into(), "//!".into(), "///".into()],
+            }),
+            "cpp" | "cc" | "cxx" | "hpp" | "c++" => Some(Self {
                 single_line_comments: vec!["//".into()],
                 multi_line_comments: vec![("/*".into(), "*/".into())],
                 function_keywords: vec!["int ".into(), "void ".into(), "char ".into(), "float ".into(), "double ".into(), "bool ".into()],
@@ -332,10 +343,10 @@ fn get_language_name(extension: &str) -> String {
         "java" => "Java ☕".to_string(),
         "kt" => "Kotlin 🟪".to_string(),
         "scala" => "Scala 🔴".to_string(),
-        "c" => "C 🔧".to_string(),
+        "c" => "C Language 🔧".to_string(),
         "cpp" | "cc" | "cxx" | "c++" => "C++ ⚡".to_string(),
-        "h" => "C Header 📋".to_string(),
-        "hpp" | "hxx" => "C++ Header 📋".to_string(),
+        "h" => "C/C++ Headers 📋".to_string(),
+        "hpp" | "hxx" => "C++ Headers 📋".to_string(),
         "go" => "Go 🐹".to_string(),
         "php" => "PHP 🐘".to_string(),
         "rb" => "Ruby 💎".to_string(),
@@ -732,13 +743,17 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
         (cyclomatic_complexity + functions as f64) / functions as f64
     } else { 1.0 };
 
-    // Calculate maintainability index (simplified version)
-    let maintainability_index = if code_lines > 0 {
-        let volume = (total_lines as f64).ln() * 2.0;
-        let complexity_factor = cyclomatic_complexity.ln();
+    // Calculate maintainability index (improved version)
+    let maintainability_index = if code_lines > 0 && total_lines > 0 {
+        let volume = (total_lines as f64 * 2.0).ln().max(1.0);
+        let complexity_factor = cyclomatic_complexity.max(1.0).ln();
         let comment_ratio = comment_lines as f64 / total_lines as f64;
+        let comment_factor = if comment_ratio > 0.0 { 
+            (comment_ratio * 50.0).min(50.0) 
+        } else { 0.0 };
         
-        171.0 - 5.2 * volume - 0.23 * complexity_factor - 16.2 * (1.0 - comment_ratio).ln()
+        let base_score = 171.0 - 5.2 * volume - 0.23 * complexity_factor + comment_factor;
+        base_score.max(0.0).min(100.0)
     } else { 0.0 };
 
     // Technical debt ratio
@@ -1521,16 +1536,30 @@ fn print_advanced_results(stats: &ProjectStats, args: &Args) {
     // Performance metrics
     println!("\n{} Performance Metrics", "⚡".bright_yellow().bold());
     println!("  ⏱️  {:.3}s analysis time", stats.analysis_time.to_string().bright_white());
-    println!("  🚀 {:.1} files/sec", stats.performance_metrics.files_per_second.to_string().bright_cyan());
+    println!("  🚀 {:.0} files/sec", stats.performance_metrics.files_per_second.to_string().bright_cyan());
     println!("  📈 {:.0} lines/sec", stats.performance_metrics.lines_per_second.to_string().bright_cyan());
     println!("  💽 {:.1} MB/sec", (stats.performance_metrics.bytes_per_second / 1_048_576.0).to_string().bright_cyan());
 
-    // Quality metrics
+    // Quality metrics - only show meaningful values
     println!("\n{} Quality Assessment", "🎯".bright_green().bold());
-    println!("  🔧 {:.1} overall maintainability", stats.quality_metrics.overall_maintainability.to_string().bright_white());
-    println!("  ⚠️  {:.2}% technical debt ratio", stats.quality_metrics.technical_debt_ratio.to_string().bright_yellow());
-    println!("  📊 {:.1}% estimated test coverage", stats.quality_metrics.test_coverage_estimate.to_string().bright_blue());
-    println!("  📖 {:.1}% documentation ratio", stats.quality_metrics.documentation_ratio.to_string().bright_green());
+    if stats.quality_metrics.overall_maintainability > 0.0 {
+        println!("  🔧 {:.1} overall maintainability", stats.quality_metrics.overall_maintainability.to_string().bright_white());
+    }
+    if stats.quality_metrics.technical_debt_ratio > 0.0 {
+        println!("  ⚠️  {:.2}% technical debt ratio", stats.quality_metrics.technical_debt_ratio.to_string().bright_yellow());
+    }
+    if stats.quality_metrics.test_coverage_estimate > 0.0 {
+        println!("  📊 {:.1}% estimated test coverage", stats.quality_metrics.test_coverage_estimate.to_string().bright_blue());
+    }
+    if stats.quality_metrics.documentation_ratio > 0.0 {
+        println!("  📖 {:.1}% documentation ratio", stats.quality_metrics.documentation_ratio.to_string().bright_green());
+    }
+    if stats.quality_metrics.overall_maintainability == 0.0 && 
+       stats.quality_metrics.technical_debt_ratio == 0.0 && 
+       stats.quality_metrics.test_coverage_estimate == 0.0 && 
+       stats.quality_metrics.documentation_ratio == 0.0 {
+        println!("  📊 Quality metrics calculation in progress...");
+    }
 
     // Git statistics
     if let Some(ref git_info) = stats.git_info {
@@ -1598,9 +1627,18 @@ fn print_advanced_results(stats: &ProjectStats, args: &Args) {
                 lang_stats.complexity_score,
                 lang_stats.cyclomatic_complexity
             );
-            println!("  🔧 {} functions | 🏗️ {} classes | 📦 {} imports", 
+            let class_label = if language.contains("C Language") || language.contains("C/C++ Headers") {
+                "structs/enums"
+            } else if language.contains("Rust") {
+                "structs/enums/traits"
+            } else {
+                "classes"
+            };
+            
+            println!("  🔧 {} functions | 🏗️ {} {} | 📦 {} imports", 
                 lang_stats.functions.to_string().bright_yellow(),
                 lang_stats.classes.to_string().bright_magenta(),
+                class_label,
                 lang_stats.imports.to_string().bright_cyan()
             );
             println!("  🔧 {:.1} maintainability index", 
@@ -1672,10 +1710,17 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Set thread count
+    // Set thread count - use optimal threading
     if args.threads > 0 {
         rayon::ThreadPoolBuilder::new()
             .num_threads(args.threads)
+            .build_global()
+            .unwrap();
+    } else {
+        // Auto-detect optimal thread count (CPU cores or 8, whichever is larger for I/O bound work)
+        let optimal_threads = std::cmp::max(num_cpus::get(), 8);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(optimal_threads)
             .build_global()
             .unwrap();
     }
@@ -1918,4 +1963,4 @@ fn main() {
         project_stats.total_lines.to_string().bright_cyan(),
         analysis_time.to_string().bright_yellow()
     );
-                    }
+                           }
