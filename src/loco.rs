@@ -1,5 +1,4 @@
 
-
 use clap::Parser;
 use colored::*;
 use dashmap::DashMap;
@@ -19,7 +18,7 @@ use walkdir::WalkDir;
 #[derive(Parser, Debug)]
 #[command(name = "loco")]
 #[command(about = "🚀 Ultra-Fast Line Counter & Code Analyzer")]
-#[command(version = "0.2.0")]
+#[command(version = "0.4.0")]
 struct Args {
     /// Path to analyze
     #[arg(short, long)]
@@ -882,10 +881,10 @@ fn detect_hotspots(files_info: &[FileInfo]) -> Vec<FileInfo> {
     }
 
     // Calculate more realistic thresholds
-    let lines: Vec<u64> = files_info.iter().map(|f| f.lines).collect();
+    let mut lines: Vec<u64> = files_info.iter().map(|f| f.lines).collect();
     let complexities: Vec<f64> = files_info.iter().map(|f| f.complexity).collect();
-    let todos: Vec<u64> = files_info.iter().map(|f| f.todos).collect();
-    let sizes: Vec<u64> = files_info.iter().map(|f| f.size).collect();
+    let _todos: Vec<u64> = files_info.iter().map(|f| f.todos).collect();
+    let _sizes: Vec<u64> = files_info.iter().map(|f| f.size).collect();
 
     // Use percentiles instead of averages for better detection
     lines.sort_unstable();
@@ -1919,4 +1918,4 @@ fn main() {
         project_stats.total_lines.to_string().bright_cyan(),
         analysis_time.to_string().bright_yellow()
     );
-                      }
+                    }
