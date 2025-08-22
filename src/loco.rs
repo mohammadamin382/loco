@@ -1,4 +1,5 @@
 
+
 use clap::Parser;
 use colored::*;
 use dashmap::DashMap;
@@ -18,7 +19,7 @@ use walkdir::WalkDir;
 #[derive(Parser, Debug)]
 #[command(name = "loco")]
 #[command(about = "🚀 Ultra-Fast Line Counter & Code Analyzer")]
-#[command(version = "0.4.0")]
+#[command(version = "0.2.0")]
 struct Args {
     /// Path to analyze
     #[arg(short, long)]
@@ -900,7 +901,7 @@ fn detect_hotspots(files_info: &[FileInfo]) -> Vec<FileInfo> {
     
     // More aggressive thresholds
     let large_file_threshold = std::cmp::max(200, lines_75th); // At least 200 lines
-    let high_complexity_threshold = std::cmp::max(0.1, complexity_75th); // At least 0.1 complexity
+    let high_complexity_threshold = complexity_75th.max(0.1); // At least 0.1 complexity
     let high_todos_threshold = 3; // Fixed threshold for todos
     let large_size_threshold = 50 * 1024; // 50KB
 
@@ -1918,4 +1919,4 @@ fn main() {
         project_stats.total_lines.to_string().bright_cyan(),
         analysis_time.to_string().bright_yellow()
     );
-                }
+                      }
