@@ -1,7 +1,6 @@
 
 use clap::Parser;
 use colored::*;
-use crossbeam::channel::{bounded, Receiver, Sender};
 use dashmap::DashMap;
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::Mmap;
@@ -10,12 +9,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Instant, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
@@ -553,8 +550,8 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
     let mut cyclomatic_complexity = 0.0;
     let mut max_line_length = 0;
     let mut total_chars = 0;
-    let mut test_indicators = 0u64;
-    let mut doc_indicators = 0u64;
+    let mut _test_indicators = 0u64;
+    let mut _doc_indicators = 0u64;
 
     let mut in_multi_comment = false;
     let mut multi_comment_end = String::new();
@@ -579,7 +576,7 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
         // Test detection
         for test_keyword in &config.test_keywords {
             if trimmed.contains(test_keyword) {
-                test_indicators += 1;
+                _test_indicators += 1;
                 break;
             }
         }
@@ -587,7 +584,7 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
         // Documentation detection
         for doc_keyword in &config.doc_keywords {
             if trimmed.contains(doc_keyword) {
-                doc_indicators += 1;
+                _doc_indicators += 1;
                 break;
             }
         }
@@ -888,7 +885,7 @@ fn detect_hotspots(files_info: &[FileInfo]) -> Vec<FileInfo> {
     hotspots
 }
 
-fn generate_html_report(stats: &ProjectStats, args: &Args) -> String {
+fn generate_html_report(stats: &ProjectStats, _args: &Args) -> String {
     let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
     
     format!(r#"
@@ -1611,7 +1608,7 @@ fn main() {
             }
         }
 
-        let current = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
+        let _current = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
         if let Some(ref pb) = progress_bar {
             pb.inc(1);
         }
@@ -1622,10 +1619,22 @@ fn main() {
     }
 
     // Convert DashMap to HashMap for final stats
-    let final_languages: HashMap<String, LanguageStats> = languages.into_iter().collect();
-    let final_files_info: Vec<FileInfo> = files_info.into_iter().map(|(_, v)| v).collect();
-    let final_creation_dates: Vec<u64> = creation_dates.into_iter().map(|(_, v)| v).collect();
-    let final_modification_dates: Vec<u64> = modification_dates.into_iter().map(|(_, v)| v).collect();
+    let final_languages: HashMap<String, LanguageStats> = {
+        let languages_ref = Arc::try_unwrap(languages).unwrap_or_else(|arc| (*arc).clone());
+        languages_ref.into_iter().collect()
+    };
+    let final_files_info: Vec<FileInfo> = {
+        let files_info_ref = Arc::try_unwrap(files_info).unwrap_or_else(|arc| (*arc).clone());
+        files_info_ref.into_iter().map(|(_, v)| v).collect()
+    };
+    let final_creation_dates: Vec<u64> = {
+        let creation_dates_ref = Arc::try_unwrap(creation_dates).unwrap_or_else(|arc| (*arc).clone());
+        creation_dates_ref.into_iter().map(|(_, v)| v).collect()
+    };
+    let final_modification_dates: Vec<u64> = {
+        let modification_dates_ref = Arc::try_unwrap(modification_dates).unwrap_or_else(|arc| (*arc).clone());
+        modification_dates_ref.into_iter().map(|(_, v)| v).collect()
+    };
 
     let analysis_time = start_time.elapsed().as_secs_f64();
     let total_bytes = total_bytes_processed.load(Ordering::Relaxed);
@@ -1645,6 +1654,10 @@ fn main() {
     } else {
         None
     };
+
+    // Clone data for quality metrics calculation before moving
+    let files_info_for_quality = final_files_info.clone();
+    let languages_for_quality = final_languages.clone();
 
     // Detect hotspots if requested
     let hotspots = if args.hotspots {
@@ -1667,7 +1680,7 @@ fn main() {
         directory_stats: HashMap::new(), // Could be implemented for directory-level analysis
         performance_metrics,
         quality_metrics: calculate_quality_metrics(&ProjectStats {
-            languages: final_languages,
+            languages: languages_for_quality,
             total_files: files.len() as u64,
             total_lines: 0,
             total_size: total_bytes,
@@ -1675,7 +1688,7 @@ fn main() {
             git_info: None,
             creation_dates: vec![],
             modification_dates: vec![],
-            files_info: final_files_info.clone(),
+            files_info: files_info_for_quality,
             hotspots: vec![],
             directory_stats: HashMap::new(),
             performance_metrics: PerformanceMetrics {
@@ -1734,4 +1747,4 @@ fn main() {
         project_stats.total_lines.to_string().bright_cyan(),
         analysis_time.to_string().bright_yellow()
     );
-                        }
+    }
