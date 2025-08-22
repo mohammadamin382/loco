@@ -2,7 +2,7 @@
 name = "loco"
 version = "0.2.0"
 authors = ["runner"]
-edition = "2025"
+edition = "2021"
 
 [[bin]]
 name = "loco"
