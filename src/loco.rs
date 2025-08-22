@@ -411,10 +411,24 @@ fn get_file_times(file_path: &Path) -> (Option<u64>, Option<u64>) {
 }
 
 fn get_git_stats(path: &Path) -> Option<GitStats> {
-    let git_dir = path.join(".git");
-    if !git_dir.exists() {
-        return None;
+    // Check for .git directory or if we're inside a git repo
+    let mut current_path = path;
+    let mut git_root = None;
+    
+    loop {
+        let git_dir = current_path.join(".git");
+        if git_dir.exists() {
+            git_root = Some(current_path);
+            break;
+        }
+        
+        match current_path.parent() {
+            Some(parent) => current_path = parent,
+            None => break,
+        }
     }
+    
+    let git_path = git_root?;
 
     let mut git_stats = GitStats {
         total_commits: 0,
@@ -431,59 +445,73 @@ fn get_git_stats(path: &Path) -> Option<GitStats> {
     // Get total commits
     if let Ok(output) = std::process::Command::new("git")
         .args(&["rev-list", "--count", "HEAD"])
-        .current_dir(path)
+        .current_dir(git_path)
         .output()
     {
-        if let Ok(count_str) = String::from_utf8(output.stdout) {
-            git_stats.total_commits = count_str.trim().parse().unwrap_or(0);
+        if output.status.success() {
+            if let Ok(count_str) = String::from_utf8(output.stdout) {
+                git_stats.total_commits = count_str.trim().parse().unwrap_or(0);
+            }
         }
     }
 
     // Get contributors count and most active author
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["shortlog", "-sn"])
-        .current_dir(path)
+        .args(&["shortlog", "-sn", "HEAD"])
+        .current_dir(git_path)
         .output()
     {
-        if let Ok(contributors_str) = String::from_utf8(output.stdout) {
-            let lines: Vec<&str> = contributors_str.lines().collect();
-            git_stats.contributors = lines.len();
-            if let Some(first_line) = lines.first() {
-                if let Some(author) = first_line.split_whitespace().skip(1).next() {
-                    git_stats.most_active_author = Some(author.to_string());
+        if output.status.success() {
+            if let Ok(contributors_str) = String::from_utf8(output.stdout) {
+                let lines: Vec<&str> = contributors_str.lines().filter(|l| !l.trim().is_empty()).collect();
+                git_stats.contributors = lines.len();
+                if let Some(first_line) = lines.first() {
+                    let parts: Vec<&str> = first_line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        git_stats.most_active_author = Some(parts[1..].join(" "));
+                    }
                 }
             }
         }
     }
 
-    // Get last commit date and calculate repository age
+    // Get last commit date
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["log", "-1", "--format=%cd", "--date=short"])
-        .current_dir(path)
+        .args(&["log", "-1", "--format=%cd", "--date=short", "HEAD"])
+        .current_dir(git_path)
         .output()
     {
-        if let Ok(date_str) = String::from_utf8(output.stdout) {
-            git_stats.last_commit_date = Some(date_str.trim().to_string());
+        if output.status.success() {
+            if let Ok(date_str) = String::from_utf8(output.stdout) {
+                let date = date_str.trim();
+                if !date.is_empty() {
+                    git_stats.last_commit_date = Some(date.to_string());
+                }
+            }
         }
     }
 
     // Get first commit date for age calculation
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["log", "--reverse", "--format=%ct", "-1"])
-        .current_dir(path)
+        .args(&["log", "--reverse", "--format=%ct", "-1", "HEAD"])
+        .current_dir(git_path)
         .output()
     {
-        if let Ok(timestamp_str) = String::from_utf8(output.stdout) {
-            if let Ok(first_commit_timestamp) = timestamp_str.trim().parse::<u64>() {
-                let now = std::time::SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                let age_days = (now - first_commit_timestamp) / (24 * 3600);
-                git_stats.repository_age_days = Some(age_days);
-                
-                if age_days > 0 {
-                    git_stats.avg_commits_per_day = git_stats.total_commits as f64 / age_days as f64;
+        if output.status.success() {
+            if let Ok(timestamp_str) = String::from_utf8(output.stdout) {
+                if let Ok(first_commit_timestamp) = timestamp_str.trim().parse::<u64>() {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    if now > first_commit_timestamp {
+                        let age_days = (now - first_commit_timestamp) / (24 * 3600);
+                        git_stats.repository_age_days = Some(age_days);
+                        
+                        if age_days > 0 {
+                            git_stats.avg_commits_per_day = git_stats.total_commits as f64 / age_days as f64;
+                        }
+                    }
                 }
             }
         }
@@ -491,28 +519,37 @@ fn get_git_stats(path: &Path) -> Option<GitStats> {
 
     // Get current branch
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["branch", "--show-current"])
-        .current_dir(path)
+        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(git_path)
         .output()
     {
-        if let Ok(branch_str) = String::from_utf8(output.stdout) {
-            git_stats.branch = Some(branch_str.trim().to_string());
+        if output.status.success() {
+            if let Ok(branch_str) = String::from_utf8(output.stdout) {
+                let branch = branch_str.trim();
+                if !branch.is_empty() && branch != "HEAD" {
+                    git_stats.branch = Some(branch.to_string());
+                }
+            }
         }
     }
 
-    // Get lines added/deleted statistics
+    // Get lines added/deleted statistics (last 50 commits to avoid timeout)
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["log", "--numstat", "--pretty=format:", "--since=1.year.ago"])
-        .current_dir(path)
+        .args(&["log", "--numstat", "--pretty=format:", "-50"])
+        .current_dir(git_path)
         .output()
     {
-        if let Ok(stats_str) = String::from_utf8(output.stdout) {
-            for line in stats_str.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    if let (Ok(added), Ok(deleted)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
-                        git_stats.lines_added += added;
-                        git_stats.lines_deleted += deleted;
+        if output.status.success() {
+            if let Ok(stats_str) = String::from_utf8(output.stdout) {
+                for line in stats_str.lines() {
+                    if !line.trim().is_empty() {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 && parts[0] != "-" && parts[1] != "-" {
+                            if let (Ok(added), Ok(deleted)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
+                                git_stats.lines_added += added;
+                                git_stats.lines_deleted += deleted;
+                            }
+                        }
                     }
                 }
             }
@@ -716,7 +753,7 @@ fn analyze_file_advanced(file_path: &Path, config: &LanguageConfig, args: &Args)
     let encoding = if args.encoding {
         detect_encoding_advanced(file_path)
     } else {
-        "N/A".to_string()
+        detect_encoding_advanced(file_path) // Always detect, it's lightweight
     };
 
     let extension = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -843,28 +880,84 @@ fn detect_hotspots(files_info: &[FileInfo]) -> Vec<FileInfo> {
         return Vec::new();
     }
 
-    // Calculate dynamic thresholds based on dataset
-    let avg_lines: f64 = files_info.iter().map(|f| f.lines as f64).sum::<f64>() / files_info.len() as f64;
-    let avg_complexity: f64 = files_info.iter().map(|f| f.complexity).sum::<f64>() / files_info.len() as f64;
-    let avg_todos: f64 = files_info.iter().map(|f| f.todos as f64).sum::<f64>() / files_info.len() as f64;
+    // Calculate more realistic thresholds
+    let lines: Vec<u64> = files_info.iter().map(|f| f.lines).collect();
+    let complexities: Vec<f64> = files_info.iter().map(|f| f.complexity).collect();
+    let todos: Vec<u64> = files_info.iter().map(|f| f.todos).collect();
+    let sizes: Vec<u64> = files_info.iter().map(|f| f.size).collect();
 
-    let large_file_threshold = (avg_lines * 2.0) as u64;
-    let high_complexity_threshold = avg_complexity * 1.5;
-    let high_todos_threshold = (avg_todos * 2.0) as u64;
-    let large_size_threshold = 100 * 1024; // 100KB
+    // Use percentiles instead of averages for better detection
+    lines.sort_unstable();
+    let mut sorted_complexities = complexities.clone();
+    sorted_complexities.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let lines_75th = if !lines.is_empty() { 
+        lines[lines.len() * 75 / 100] 
+    } else { 0 };
+    let complexity_75th = if !sorted_complexities.is_empty() { 
+        sorted_complexities[sorted_complexities.len() * 75 / 100] 
+    } else { 0.0 };
+    
+    // More aggressive thresholds
+    let large_file_threshold = std::cmp::max(200, lines_75th); // At least 200 lines
+    let high_complexity_threshold = std::cmp::max(0.1, complexity_75th); // At least 0.1 complexity
+    let high_todos_threshold = 3; // Fixed threshold for todos
+    let large_size_threshold = 50 * 1024; // 50KB
 
     let mut hotspots: Vec<FileInfo> = files_info.iter()
         .filter_map(|file| {
             let mut risk_score = 0;
+            let mut reasons = Vec::new();
 
-            if file.lines > large_file_threshold { risk_score += 2; }
-            if file.complexity > high_complexity_threshold { risk_score += 3; }
-            if file.todos > high_todos_threshold { risk_score += 2; }
-            if file.size > large_size_threshold { risk_score += 1; }
-            if file.maintainability_index < 20.0 { risk_score += 2; }
-            if file.technical_debt_ratio > 5.0 { risk_score += 1; }
+            // More granular scoring
+            if file.lines > large_file_threshold { 
+                risk_score += 2; 
+                reasons.push("large file");
+            }
+            if file.lines > large_file_threshold * 2 { 
+                risk_score += 1; 
+                reasons.push("very large file");
+            }
+            
+            if file.complexity > high_complexity_threshold { 
+                risk_score += 3; 
+                reasons.push("high complexity");
+            }
+            if file.complexity > high_complexity_threshold * 2.0 { 
+                risk_score += 1; 
+                reasons.push("very high complexity");
+            }
+            
+            if file.todos >= high_todos_threshold { 
+                risk_score += 2; 
+                reasons.push("many todos");
+            }
+            
+            if file.size > large_size_threshold { 
+                risk_score += 1; 
+                reasons.push("large size");
+            }
+            
+            // Check for poor maintainability
+            let calculated_maintainability = if file.maintainability_index > 0.0 {
+                file.maintainability_index
+            } else {
+                // Calculate basic maintainability if not set
+                50.0 - (file.complexity * 10.0) + (file.todos as f64 * -2.0)
+            };
+            
+            if calculated_maintainability < 30.0 { 
+                risk_score += 2; 
+                reasons.push("low maintainability");
+            }
+            
+            if file.technical_debt_ratio > 5.0 { 
+                risk_score += 1; 
+                reasons.push("high technical debt");
+            }
 
-            if risk_score >= 3 {
+            // Lower threshold to catch more potential issues
+            if risk_score >= 2 {
                 Some(file.clone())
             } else {
                 None
@@ -872,16 +965,24 @@ fn detect_hotspots(files_info: &[FileInfo]) -> Vec<FileInfo> {
         })
         .collect();
 
-    // Sort by comprehensive risk score
+    // Enhanced sorting with multiple factors
     hotspots.sort_by(|a, b| {
-        let risk_a = a.complexity + (a.size as f64 / 1000.0) + (a.todos as f64 / 10.0) 
-                     - (a.maintainability_index / 10.0) + a.technical_debt_ratio;
-        let risk_b = b.complexity + (b.size as f64 / 1000.0) + (b.todos as f64 / 10.0) 
-                     - (b.maintainability_index / 10.0) + b.technical_debt_ratio;
+        let risk_a = (a.complexity * 100.0) + 
+                     (a.lines as f64 / 10.0) + 
+                     (a.size as f64 / 1000.0) + 
+                     (a.todos as f64 * 5.0) + 
+                     a.technical_debt_ratio;
+        
+        let risk_b = (b.complexity * 100.0) + 
+                     (b.lines as f64 / 10.0) + 
+                     (b.size as f64 / 1000.0) + 
+                     (b.todos as f64 * 5.0) + 
+                     b.technical_debt_ratio;
+                     
         risk_b.partial_cmp(&risk_a).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    hotspots.truncate(15); // Top 15 hotspots
+    hotspots.truncate(20); // Top 20 hotspots
     hotspots
 }
 
@@ -1296,38 +1397,108 @@ fn calculate_quality_metrics(stats: &ProjectStats) -> QualityMetrics {
         };
     }
 
-    // Calculate weighted maintainability
-    let overall_maintainability = stats.languages.values()
-        .map(|lang| lang.maintainability_index * lang.total_lines as f64)
-        .sum::<f64>() / total_lines;
+    // Calculate weighted maintainability (if any language has real maintainability data)
+    let total_weighted_maintainability = stats.languages.values()
+        .map(|lang| {
+            let mi = if lang.maintainability_index > 0.0 { 
+                lang.maintainability_index 
+            } else {
+                // Calculate a basic maintainability score
+                let complexity_factor = 1.0 / (1.0 + lang.complexity_score);
+                let comment_factor = lang.comment_percentage / 100.0;
+                let size_factor = if lang.total_lines > 1000 { 0.8 } else { 1.0 };
+                (50.0 + complexity_factor * 30.0 + comment_factor * 20.0) * size_factor
+            };
+            mi * lang.total_lines as f64
+        })
+        .sum::<f64>();
+    let overall_maintainability = total_weighted_maintainability / total_lines;
 
     // Calculate technical debt ratio
     let total_todos = stats.languages.values().map(|lang| lang.todos).sum::<u64>();
     let total_fixmes = stats.languages.values().map(|lang| lang.fixmes).sum::<u64>();
-    let technical_debt_ratio = (total_todos + total_fixmes) as f64 / total_lines * 100.0;
+    let total_code_lines = stats.languages.values().map(|lang| lang.code_lines).sum::<u64>();
+    let technical_debt_ratio = if total_code_lines > 0 {
+        (total_todos + total_fixmes) as f64 / total_code_lines as f64 * 100.0
+    } else {
+        0.0
+    };
 
-    // Estimate test coverage based on test files and test keywords
-    let test_file_count = stats.files_info.iter()
+    // Estimate test coverage based on test files and patterns
+    let test_files = stats.files_info.iter()
         .filter(|file| {
             let path_str = file.path.to_string_lossy().to_lowercase();
-            path_str.contains("test") || path_str.contains("spec")
+            let file_name = file.path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            
+            path_str.contains("/test") || path_str.contains("\\test") ||
+            path_str.contains("/spec") || path_str.contains("\\spec") ||
+            file_name.starts_with("test_") || file_name.ends_with("_test.") ||
+            file_name.ends_with(".test.") || file_name.ends_with(".spec.") ||
+            path_str.contains("__test__") || path_str.contains("__tests__")
         })
-        .count() as f64;
-    let test_coverage_estimate = (test_file_count / total_files * 100.0).min(100.0);
+        .count();
+    
+    let test_coverage_estimate = if total_files > 0.0 {
+        let base_coverage = (test_files as f64 / total_files * 50.0).min(80.0);
+        // Boost if we have good test structure
+        if test_files > 0 {
+            (base_coverage + 10.0).min(100.0)
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
 
-    // Calculate documentation ratio
+    // Calculate documentation ratio based on comments and specific patterns
     let total_comments = stats.languages.values().map(|lang| lang.comment_lines).sum::<u64>();
-    let documentation_ratio = total_comments as f64 / total_lines * 100.0;
+    let documentation_ratio = if total_lines > 0.0 {
+        let comment_ratio = total_comments as f64 / total_lines * 100.0;
+        
+        // Check for documentation files
+        let doc_files = stats.files_info.iter()
+            .filter(|file| {
+                let path_str = file.path.to_string_lossy().to_lowercase();
+                path_str.ends_with(".md") || path_str.ends_with(".rst") ||
+                path_str.ends_with(".txt") || path_str.contains("readme") ||
+                path_str.contains("doc") || path_str.contains("wiki")
+            })
+            .count();
+        
+        let doc_bonus = if doc_files > 0 { 5.0 } else { 0.0 };
+        (comment_ratio + doc_bonus).min(100.0)
+    } else {
+        0.0
+    };
 
-    // Estimate code duplication (simplified - based on average line length variance)
-    let avg_line_lengths: Vec<f64> = stats.languages.values()
-        .map(|lang| lang.avg_line_length)
+    // Estimate code duplication based on file size variance and complexity patterns
+    let file_sizes: Vec<f64> = stats.files_info.iter()
+        .map(|f| f.lines as f64)
         .collect();
-    let mean_avg_length = avg_line_lengths.iter().sum::<f64>() / avg_line_lengths.len() as f64;
-    let variance = avg_line_lengths.iter()
-        .map(|&x| (x - mean_avg_length).powi(2))
-        .sum::<f64>() / avg_line_lengths.len() as f64;
-    let code_duplication_ratio = (variance / mean_avg_length * 10.0).min(30.0);
+    
+    let code_duplication_ratio = if file_sizes.len() > 1 {
+        let mean_size = file_sizes.iter().sum::<f64>() / file_sizes.len() as f64;
+        let variance = file_sizes.iter()
+            .map(|&x| (x - mean_size).powi(2))
+            .sum::<f64>() / file_sizes.len() as f64;
+        
+        // Higher variance might indicate code duplication (very large files vs very small)
+        let normalized_variance = if mean_size > 0.0 {
+            (variance.sqrt() / mean_size * 20.0).min(50.0)
+        } else {
+            0.0
+        };
+        
+        // Also consider complexity patterns
+        let avg_complexity = stats.languages.values()
+            .map(|lang| lang.complexity_score)
+            .sum::<f64>() / stats.languages.len() as f64;
+        
+        let complexity_factor = if avg_complexity > 0.5 { 5.0 } else { 0.0 };
+        (normalized_variance + complexity_factor).min(30.0)
+    } else {
+        0.0
+    };
 
     QualityMetrics {
         overall_maintainability,
@@ -1747,4 +1918,4 @@ fn main() {
         project_stats.total_lines.to_string().bright_cyan(),
         analysis_time.to_string().bright_yellow()
     );
-    }
+                }
