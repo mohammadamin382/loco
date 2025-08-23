@@ -1,4 +1,3 @@
-
 use clap::Parser;
 use colored::*;
 use num_cpus;
@@ -18,8 +17,8 @@ use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
 #[command(name = "loco")]
-#[command(about = "🚀 Ultra-Fast Line Counter & Code Analyzer")]
-#[command(version = "0.5.0")]
+#[command(about = "🚀 Fast Line Counter")]
+#[command(version = "0.2.0")]
 struct Args {
     /// Path to analyze
     #[arg(short, long)]
