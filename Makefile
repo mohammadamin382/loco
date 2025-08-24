@@ -5,10 +5,24 @@ BINARY_NAME = loco
 TARGET_DIR  = target/release
 INSTALL_DIR = /usr/local/bin
 
-.PHONY: all build install clean
+.PHONY: all build install clean check_cargo
 
 # Default target
-all: build install
+all: check_cargo build install
+
+# Check if cargo is installed
+check_cargo:
+	@echo "🔍 Checking if Cargo is installed..."
+	@if ! command -v cargo &> /dev/null; then \
+		echo "❌ Cargo not found! Installing..."; \
+		# For Ubuntu/Debian
+		sudo apt update && sudo apt install -y cargo; \
+		# For macOS (use Homebrew)
+		# brew install cargo; \
+		echo "✅ Cargo installed!"; \
+	else \
+		echo "✅ Cargo is already installed."; \
+	fi
 
 # Build the project in release mode
 build:
