@@ -1,3 +1,4 @@
+
 # Makefile for building and installing the loco binary
 
 # Define variables
@@ -17,8 +18,6 @@ check_cargo:
 		echo "❌ Cargo not found! Installing..."; \
 		# For Ubuntu/Debian
 		sudo apt update && sudo apt install -y cargo; \
-		# For macOS (use Homebrew)
-		# brew install cargo; \
 		echo "✅ Cargo installed!"; \
 	else \
 		echo "✅ Cargo is already installed."; \
